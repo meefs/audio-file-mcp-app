@@ -148,6 +148,23 @@ spans in a lane are truncated at the next span's start so rows never overlap.
 The model can author annotations to point out sections, mark events, or
 visualise an analysis it just ran.
 
+## Security model
+
+- The server runs locally over stdio, with your user account's permissions.
+- `display_audio_file` opens any file path it is given, by design, but only
+  accepts files recognised as audio.
+- The player streams the file through a byte-range resource
+  (`audiofile-range://…`). It returns bytes only of files recognised as audio;
+  anything else, including a path that doesn't exist, gets the same
+  "Not a recognised audio file" error.
+- `annotationsPath` reads a JSON file you name, and only uses it if it matches
+  the annotation format.
+- What remains: a model that can call tools can open any audio file on your
+  machine. Hosts that ask for approval before tool calls are the control for
+  that.
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
 ## Client compatibility
 
 Tested and known to work in:
