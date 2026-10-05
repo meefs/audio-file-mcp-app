@@ -25,6 +25,10 @@ import {
     type ChunkLoader,
 } from "./chunk-loader";
 import { createChunkedSource } from "./chunked-source";
+import {
+    resolveDisplayAudioInit,
+    type ResolvedDisplayAudioInit,
+} from "./reopen-audio-file";
 import type { Source } from "mediabunny";
 
 const metadataEl = document.querySelector("#info") as HTMLElement;
@@ -102,10 +106,16 @@ type LoadedAudio = {
 let currentAudio: AudioState | null = null;
 let loadGen = 0;
 
+// If a replayed tool result has lost its structured data entirely, the original
+// arguments let a re-open keep the playhead, region and annotations.
+let toolInput: Record<string, unknown> | undefined;
+app.ontoolinput = (params) => {
+    toolInput = params.arguments;
+};
+
 app.ontoolresult = async (result) => {
-    const init = parseDisplayAudioInit(result);
-    if (!init) return;
-    const filePath = init.path;
+    const received = parseDisplayAudioInit(result);
+    if (!received) return;
 
     const sc = structuredContentOf(result) as
         | { createdAt?: unknown; seq?: unknown }
@@ -123,23 +133,24 @@ app.ontoolresult = async (result) => {
         );
     }
 
-    if (init.sizeBytes === undefined) {
-        console.warn("display_audio_file result missing sizeBytes; cannot load");
-        showError("decode-failed", "missing file size from server");
-        return;
-    }
-
     const myGen = ++loadGen;
     releaseCurrent();
     hideError();
     playPauseBtn.classList.add("is-loading");
 
     try {
+        let init: ResolvedDisplayAudioInit;
         let loaded: LoadedAudio | null;
         let headerBytes: Uint8Array;
         try {
+            init = await resolveDisplayAudioInit(
+                received,
+                toolInput,
+                callDisplayAudioFile,
+            );
+            if (myGen !== loadGen) return;
             loaded = await loadAudio(
-                filePath,
+                init.path,
                 init.sizeBytes,
                 () => myGen === loadGen,
             );
@@ -165,6 +176,7 @@ app.ontoolresult = async (result) => {
             showError("decode-failed", errorMessage(e));
             return;
         }
+        const filePath = init.path;
 
         const { source, store, loader, chunkBus, format, failed } = loaded;
         const metadata = extractMetadata(format, headerBytes, init.sizeBytes);
@@ -354,6 +366,10 @@ async function loadAudio(
 
 function errorMessage(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
+}
+
+function callDisplayAudioFile(args: Record<string, unknown>) {
+    return app.callServerTool({ name: "display_audio_file", arguments: args });
 }
 
 async function mcpRangeFetcher(
