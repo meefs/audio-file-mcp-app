@@ -94,6 +94,8 @@ type LoadedAudio = {
     loader: ChunkLoader;
     chunkBus: ChunkBus;
     format: AudioFormat | null;
+    // Rejects on the first failed range read (the loader stops with it).
+    failed: Promise<never>;
 };
 
 let currentAudio: AudioState | null = null;
@@ -133,28 +135,37 @@ app.ontoolresult = async (result) => {
 
     try {
         let loaded: LoadedAudio | null;
+        let headerBytes: Uint8Array;
         try {
             loaded = await loadAudio(
                 filePath,
                 init.sizeBytes,
                 () => myGen === loadGen,
             );
+            if (myGen !== loadGen || loaded === null) return;
+            const headerLen = Math.min(METADATA_HEADER_BYTES, init.sizeBytes);
+            await Promise.race([
+                waitForRange(
+                    loaded.chunkBus,
+                    loaded.store,
+                    0,
+                    headerLen,
+                    () => myGen === loadGen,
+                ),
+                loaded.failed,
+            ]);
+            if (myGen !== loadGen) {
+                loaded.loader.cancel();
+                return;
+            }
+            headerBytes = await loaded.store.read(0, headerLen);
         } catch (e) {
             if (myGen !== loadGen) return;
-            const message = e instanceof Error ? e.message : String(e);
-            showError("decode-failed", message);
+            showError("decode-failed", errorMessage(e));
             return;
         }
-        if (myGen !== loadGen || loaded === null) return;
 
-        const { source, store, loader, chunkBus, format } = loaded;
-        const headerLen = Math.min(METADATA_HEADER_BYTES, init.sizeBytes);
-        await waitForRange(chunkBus, store, 0, headerLen, () => myGen === loadGen);
-        if (myGen !== loadGen) {
-            loader.cancel();
-            return;
-        }
-        const headerBytes = await store.read(0, headerLen);
+        const { source, store, loader, chunkBus, format, failed } = loaded;
         const metadata = extractMetadata(format, headerBytes, init.sizeBytes);
         if (myGen !== loadGen) {
             loader.cancel();
@@ -230,6 +241,12 @@ app.ontoolresult = async (result) => {
             publisher,
         };
         applyInitialState(currentAudio, init, () => myGen === loadGen);
+        failed.catch((e) => {
+            if (myGen !== loadGen) return;
+            const message = errorMessage(e);
+            publisher.setError("decode-failed", message);
+            showError("decode-failed", message);
+        });
     } finally {
         if (myGen === loadGen) {
             playPauseBtn.classList.remove("is-loading");
@@ -288,6 +305,13 @@ async function loadAudio(
     sizeBytes: number,
     stillCurrent: () => boolean,
 ): Promise<LoadedAudio | null> {
+    let rejectFailed!: (e: unknown) => void;
+    const failed = new Promise<never>((_, reject) => {
+        rejectFailed = reject;
+    });
+    // Observed by the races and handler in ontoolresult; this just keeps a
+    // failure after a newer load from surfacing as an unhandled rejection.
+    failed.catch(() => {});
     const store = createChunkStore(sizeBytes);
     const chunkBus = createChunkBus();
     const loader = createChunkLoader(store, {
@@ -297,6 +321,10 @@ async function loadAudio(
         concurrency: 4,
         fetcher: (start, length) =>
             mcpRangeFetcher(filePath, start, length),
+        onError: (e) => {
+            loader.cancel();
+            rejectFailed(e);
+        },
         onChunk: (start, blob) => {
             store.add(start, blob);
             chunkBus.emit({ start, end: start + blob.size, blob });
@@ -308,7 +336,10 @@ async function loadAudio(
         onChunk: chunkBus.subscribe,
     });
 
-    await waitForFirstChunk(chunkBus, store, stillCurrent);
+    await Promise.race([
+        waitForFirstChunk(chunkBus, store, stillCurrent),
+        failed,
+    ]);
     if (!stillCurrent()) {
         loader.cancel();
         return null;
@@ -317,7 +348,11 @@ async function loadAudio(
     const head = await store.read(0, Math.min(64, sizeBytes));
     const format = sniffAudioFormatBytes(head);
 
-    return { source, store, loader, chunkBus, format };
+    return { source, store, loader, chunkBus, format, failed };
+}
+
+function errorMessage(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
 }
 
 async function mcpRangeFetcher(
