@@ -1,6 +1,6 @@
-import audioType, { type AudioFormat } from "audio-type";
+import type { AudioFormat } from "../shared/sniff-audio-bytes";
 
-export type { AudioFormat };
+export { sniffAudioFormatBytes, type AudioFormat } from "../shared/sniff-audio-bytes";
 
 // Containers/codecs mediabunny can decode. Other formats are still sniffed so
 // the `unsupported` banner can name them; they just don't decode.
@@ -14,10 +14,6 @@ const MEDIABUNNY_SUPPORTED: ReadonlySet<AudioFormat> = new Set<AudioFormat>([
     "oga",
     "webm",
 ]);
-
-export function sniffAudioFormatBytes(bytes: Uint8Array): AudioFormat | null {
-    return audioType(bytes) ?? null;
-}
 
 export function isMediabunnySupported(format: AudioFormat | null): boolean {
     return format !== null && MEDIABUNNY_SUPPORTED.has(format);
