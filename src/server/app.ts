@@ -31,7 +31,7 @@ const regionSchema = z.object({
 
 let callSeq = 0;
 
-// Paths opened through display_audio_file; the range resource serves only these.
+// Gate for both the tool and the range resource: regular audio files only.
 const access = createAudioAccess({
   realpath: (p) => fs.realpath(p),
   stat: (p) => fs.stat(p),
@@ -147,7 +147,7 @@ server.registerResource(
     }),
     {
         description:
-            "Byte range of an audio file previously opened with display_audio_file, as base64 in `text`; path/start/length are URL-encoded.",
+            "Byte range of an audio file (recognised audio formats only), as base64 in `text`; path/start/length are URL-encoded.",
         mimeType: "application/octet-stream;encoding=base64",
         // Advisory only: hosts may ignore it, so authorize() is the real gate.
         annotations: { audience: ["user"] },

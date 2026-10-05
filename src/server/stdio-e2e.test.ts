@@ -4,7 +4,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { NOT_AUDIO, NOT_REGISTERED } from "../shared/audio-access-errors.js";
+import { NOT_AUDIO } from "../shared/audio-access-errors.js";
 
 const root = path.resolve(import.meta.dirname, "..", "..");
 const wavFixture = path.join(
@@ -48,19 +48,19 @@ describe("stdio server range resource gate", () => {
         async () => {
             await expect(
                 client.readResource({ uri: rangeUri("/etc/passwd", 0, 4096) }),
-            ).rejects.toThrow(NOT_REGISTERED);
+            ).rejects.toThrow(NOT_AUDIO);
         },
     );
 
-    it("refuses an unregistered non-audio temp file", async () => {
+    it("refuses a non-audio temp file", async () => {
         const p = path.join(tmpDir, "secret.txt");
         await fs.writeFile(p, "root:x:0:0:root:/root:/bin/bash\n");
         await expect(
             client.readResource({ uri: rangeUri(p, 0, 64) }),
-        ).rejects.toThrow(NOT_REGISTERED);
+        ).rejects.toThrow(NOT_AUDIO);
     });
 
-    it("rejects a non-audio file in display_audio_file and still refuses reads", async () => {
+    it("rejects a non-audio file in display_audio_file and refuses reads of it", async () => {
         const p = path.join(tmpDir, "passwd-copy");
         await fs.writeFile(p, "root:x:0:0:root:/root:/bin/bash\n");
         const result = await client.callTool({
@@ -71,7 +71,24 @@ describe("stdio server range resource gate", () => {
         expect(toolText(result)).toContain(NOT_AUDIO);
         await expect(
             client.readResource({ uri: rangeUri(p, 0, 64) }),
-        ).rejects.toThrow(NOT_REGISTERED);
+        ).rejects.toThrow(NOT_AUDIO);
+    });
+
+    it("refuses a missing path with the same error as non-audio", async () => {
+        await expect(
+            client.readResource({
+                uri: rangeUri(path.join(tmpDir, "missing.wav"), 0, 64),
+            }),
+        ).rejects.toThrow(NOT_AUDIO);
+    });
+
+    it("serves bytes of an audio file without a prior display_audio_file", async () => {
+        const read = await client.readResource({
+            uri: rangeUri(wavFixture, 0, 64),
+        });
+        const text = (read.contents[0] as { text: string }).text;
+        const expected = (await fs.readFile(wavFixture)).subarray(0, 64);
+        expect(Buffer.from(text, "base64").equals(expected)).toBe(true);
     });
 
     it("serves bytes of an audio file opened through display_audio_file", async () => {
