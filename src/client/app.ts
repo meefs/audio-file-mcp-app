@@ -15,6 +15,7 @@ import {
 import { createInstanceCoordinator } from "./instance-coordinator";
 import {
     parseDisplayAudioInit,
+    structuredContentOf,
     type DisplayAudioInit,
 } from "./display-audio-init";
 import { createChunkStore, type ChunkStore } from "./chunk-store";
@@ -106,7 +107,7 @@ app.ontoolresult = async (result) => {
     if (!init) return;
     const filePath = init.path;
 
-    const sc = result.structuredContent as
+    const sc = structuredContentOf(result) as
         | { createdAt?: unknown; seq?: unknown }
         | undefined;
     if (

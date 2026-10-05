@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDisplayAudioInit } from "./display-audio-init";
+import { parseDisplayAudioInit, structuredContentOf } from "./display-audio-init";
 
 describe("parseDisplayAudioInit", () => {
     it("returns path-only when only text content is present", () => {
@@ -137,6 +137,69 @@ describe("parseDisplayAudioInit", () => {
         expect(parseDisplayAudioInit({ content: [] })).toBeNull();
         expect(
             parseDisplayAudioInit({ structuredContent: { path: "" } }),
+        ).toBeNull();
+    });
+});
+
+// Shape seen when Claude Desktop restores a saved conversation: no
+// structuredContent, its JSON serialized into the text content.
+const replayed = {
+    content: [
+        {
+            type: "text",
+            text: JSON.stringify({
+                path: "/a/mix.wav",
+                createdAt: 1791216526183,
+                seq: 1,
+                sizeBytes: 62400044,
+                mtimeMs: 1791183892000,
+                region: { startSeconds: 1, endSeconds: 2 },
+            }),
+        },
+    ],
+};
+
+describe("structuredContentOf", () => {
+    it("returns structuredContent when present", () => {
+        const sc = { path: "/a.wav" };
+        expect(
+            structuredContentOf({
+                content: [{ type: "text", text: "{\"path\":\"/other\"}" }],
+                structuredContent: sc,
+            }),
+        ).toBe(sc);
+    });
+
+    it("recovers it from JSON text content", () => {
+        expect(structuredContentOf(replayed)).toMatchObject({
+            createdAt: 1791216526183,
+            seq: 1,
+        });
+    });
+
+    it("ignores text that is a plain path, invalid JSON, or not an object", () => {
+        for (const text of ["/a.wav", "{not json", "[1,2]"]) {
+            expect(
+                structuredContentOf({ content: [{ type: "text", text }] }),
+            ).toBeUndefined();
+        }
+    });
+});
+
+describe("parseDisplayAudioInit with a replayed result", () => {
+    it("reads path, size and region from JSON text content", () => {
+        expect(parseDisplayAudioInit(replayed)).toEqual({
+            path: "/a/mix.wav",
+            sizeBytes: 62400044,
+            region: { startSeconds: 1, endSeconds: 2 },
+        });
+    });
+
+    it("never treats the JSON text as a path", () => {
+        expect(
+            parseDisplayAudioInit({
+                content: [{ type: "text", text: "{\"sizeBytes\":5}" }],
+            }),
         ).toBeNull();
     });
 });

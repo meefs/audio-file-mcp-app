@@ -13,13 +13,32 @@ type ToolResultLike = {
     structuredContent?: Record<string, unknown> | undefined;
 };
 
+// Claude Desktop restores a saved tool result with structuredContent dropped and
+// its JSON serialized into the text content instead, so recover it from there.
+export function structuredContentOf(
+    result: ToolResultLike,
+): Record<string, unknown> | undefined {
+    if (result.structuredContent) return result.structuredContent;
+    const text = firstText(result);
+    if (!text || !text.trimStart().startsWith("{")) return undefined;
+    try {
+        const parsed: unknown = JSON.parse(text);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            return parsed as Record<string, unknown>;
+        }
+    } catch {
+        // Not JSON; the text is a plain path.
+    }
+    return undefined;
+}
+
 export function parseDisplayAudioInit(
     result: ToolResultLike,
 ): DisplayAudioInit | null {
-    const path = pickPath(result);
+    const sc = structuredContentOf(result);
+    const path = pickPath(sc, result);
     if (!path) return null;
 
-    const sc = result.structuredContent;
     const init: DisplayAudioInit = { path };
     if (!sc || typeof sc !== "object") return init;
 
@@ -63,11 +82,19 @@ export function parseDisplayAudioInit(
     return init;
 }
 
-function pickPath(result: ToolResultLike): string | null {
-    const sc = result.structuredContent;
+function pickPath(
+    sc: Record<string, unknown> | undefined,
+    result: ToolResultLike,
+): string | null {
     if (sc && typeof sc.path === "string" && sc.path.length > 0) {
         return sc.path;
     }
-    const text = result.content?.find((c) => c?.type === "text")?.text;
+    // The text was the JSON itself, not a path.
+    if (sc && !result.structuredContent) return null;
+    const text = firstText(result);
     return text && text.length > 0 ? text : null;
+}
+
+function firstText(result: ToolResultLike): string | undefined {
+    return result.content?.find((c) => c?.type === "text")?.text;
 }
