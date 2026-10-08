@@ -159,6 +159,10 @@ visualise an analysis it just ran.
   "Not a recognised audio file" error.
 - `annotationsPath` reads a JSON file you name, and only uses it if it matches
   the annotation format.
+- Tool errors are specific on purpose, so you can see what went wrong: they
+  can reveal whether a named path exists, is a regular file, or (for
+  `annotationsPath`) is valid JSON in the annotation format. They never
+  include the file's contents.
 - What remains: a model that can call tools can open any audio file on your
   machine. Hosts that ask for approval before tool calls are the control for
   that.
