@@ -19,7 +19,7 @@ import { sniffAudioFile } from "./audio-sniff.js";
 
 const server = new McpServer({
   name: "Audio File MCP App",
-  version: "1.1.0",
+  version: "1.1.1",
 });
 
 const resourceUri = "ui://ctpt.co/audio-file/mcp-app.html";
