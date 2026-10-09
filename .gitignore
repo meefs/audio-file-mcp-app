@@ -6,3 +6,4 @@ build/
 .claude/
 thoughts/
 tools/
+.DS_Store
