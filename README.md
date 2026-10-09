@@ -196,16 +196,23 @@ pnpm test
 ```bash
 pnpm version <bump>          # bumps every version string (package.json, server.json,
                              # mcpb/manifest.json, src/server/app.ts) + commits + tags
-pnpm publish --access public # publishes to npm, then the MCP Registry (postpublish)
+git push && git push --tags
+source /path/to/emsdk_env.sh # prepublishOnly rebuilds the DSP code with Emscripten
+pnpm publish --access public # publishes to npm
+gh workflow run publish-registry.yml -f tag=v<version> # MCP Registry, once npm shows the version
 pnpm run build:mcpb          # produces dist/audio-file-mcp-app-<version>.mcpb
 gh release create v<version> dist/*.mcpb # attaches the bundle to a GitHub release
 ```
 
-The MCP Registry step runs `mcp-publisher publish` automatically after
-`pnpm publish`. It needs a valid login — if it fails with an auth error, run
-`mcp-publisher login github` and then `mcp-publisher publish` by hand.
-`mcp-publisher` is a Go binary; install it via `brew install mcp-publisher`
-or per the [registry quickstart](https://modelcontextprotocol.io/registry/quickstart).
+npm can hold a new version in `validating` for up to an hour before it
+appears. The registry checks the npm package, so run the registry workflow
+only after `npm view @counterpoint-studio/audio-file-mcp-app version` shows
+the new version.
+
+The MCP Registry is published from GitHub Actions
+(`.github/workflows/publish-registry.yml`) because the interactive
+`mcp-publisher login github` only grants a personal namespace, not
+`io.github.counterpoint-studio/*`.
 
 ## License
 

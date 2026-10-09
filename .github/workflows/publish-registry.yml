@@ -1,0 +1,53 @@
+# Publishes server.json to the MCP Registry. Run by hand after `pnpm publish`
+# has put the same version on npm (the registry checks the npm package).
+#
+# Uses GitHub OIDC rather than `mcp-publisher login github`: the OIDC token
+# proves the run belongs to a counterpoint-studio repo, which grants the
+# io.github.counterpoint-studio/* namespace. The interactive login only
+# grants the personal namespace.
+name: Publish to MCP Registry
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v1.1.1)"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  MCP_PUBLISHER_VERSION: "1.7.9"
+  # sha256 of mcp-publisher_linux_amd64.tar.gz, from that release's
+  # registry_<version>_checksums.txt. Update both together.
+  MCP_PUBLISHER_SHA256: "ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Check server.json matches the tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          version=$(jq -r .version server.json)
+          if [ "v$version" != "$TAG" ]; then
+            echo "server.json is $version but tag is $TAG" >&2
+            exit 1
+          fi
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish
