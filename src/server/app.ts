@@ -14,6 +14,8 @@ import { normalizeIncomingPath } from "./path-utils.js";
 import { asScalar, parseNonNegInt } from "./range-params.js";
 import { annotationDataSchema } from "../shared/annotation-data.js";
 import { resolveAnnotations } from "./resolve-annotations.js";
+import { createAudioAccess } from "./audio-access.js";
+import { sniffAudioFile } from "./audio-sniff.js";
 
 const server = new McpServer({
   name: "Audio File MCP App",
@@ -28,6 +30,13 @@ const regionSchema = z.object({
 });
 
 let callSeq = 0;
+
+// Gate for both the tool and the range resource: regular audio files only.
+const access = createAudioAccess({
+  realpath: (p) => fs.realpath(p),
+  stat: (p) => fs.stat(p),
+  sniff: sniffAudioFile,
+});
 
 registerAppTool(
   server,
@@ -76,7 +85,7 @@ registerAppTool(
     if (!normalized) {
       throw new Error("Path parameter is required");
     }
-    const stat = await fs.stat(normalized);
+    const stat = await access.admit(normalized);
     const seq = ++callSeq;
     const createdAt = Date.now();
     const structuredContent: Record<string, unknown> = {
@@ -138,8 +147,10 @@ server.registerResource(
     }),
     {
         description:
-            "Byte range of a local audio file as base64 in `text`; path/start/length are URL-encoded.",
+            "Byte range of an audio file (recognised audio formats only), as base64 in `text`; path/start/length are URL-encoded.",
         mimeType: "application/octet-stream;encoding=base64",
+        // Advisory only: hosts may ignore it, so authorize() is the real gate.
+        annotations: { audience: ["user"] },
     },
     async (uri, { path, start, length }): Promise<ReadResourceResult> => {
         const rawPath = asScalar(path);
@@ -154,7 +165,8 @@ server.registerResource(
         if (lengthNum === 0 || lengthNum > MAX_CHUNK_BYTES) {
             throw new Error(`length must be in (0, ${MAX_CHUNK_BYTES}]`);
         }
-        const fh = await fs.open(pathStr, "r");
+        const real = await access.authorize(pathStr);
+        const fh = await fs.open(real, "r");
         try {
             const buf = Buffer.allocUnsafe(lengthNum);
             const { bytesRead } = await fh.read(buf, 0, lengthNum, startNum);
